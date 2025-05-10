@@ -1,0 +1,45 @@
+name: Selective Build and Test
+
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  test-changed-projects:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Detect changed test projects
+      id: changed
+      run: |
+        echo "##[group]Detecting changed test projects..."
+        changed_tests=$(git diff --name-only origin/develop...HEAD |
+          grep -E 'services/.+/tests/.+\.Tests\.csproj' |
+          uniq)
+        if [ -z "$changed_tests" ]; then
+          echo "No changed test projects found."
+          echo "run_tests=false" >> $GITHUB_OUTPUT
+        else
+          echo "Found test projects:"
+          echo "$changed_tests"
+          echo "run_tests=true" >> $GITHUB_OUTPUT
+          echo "$changed_tests" > changed_tests.txt
+        fi
+        echo "##[endgroup]"
+
+    - name: Run tests for changed projects
+      if: steps.changed.outputs.run_tests == 'true'
+      run: |
+        while IFS= read -r project; do
+          echo "Testing $project..."
+          dotnet restore "$project"
+          dotnet test "$project" --no-build --configuration Release
+        done < changed_tests.txt
